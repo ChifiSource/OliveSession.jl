@@ -5,7 +5,7 @@ using Olive: ToolipsMarkdown
 using Olive.ToolipsSession
 using Olive.ToolipsDefaults
 using Olive: OliveExtension, Project, Cell, OliveModifier, Environment
-import Olive: build, cell_bind!
+import Olive: build, cell_bind!, cell_highlight!
 function build(c::Connection, om::OliveModifier, oe::OliveExtension{:invite})
     ico = Olive.topbar_icon("sessionbttn", "send")
     on(c, ico, "click") do cm::ComponentModifier
@@ -39,7 +39,7 @@ function build(c::Connection, om::OliveModifier, oe::OliveExtension{:invite})
             redirect!(cm2, "/")
         end
         on(c, xbutton, "click") do cm2::ComponentModifier
-            style!(cm2, newdiv, "height" => 0percent, "opacity" => 0percent)
+            remove!(cm2, newdiv)
         end
         style!(xbutton, "border-radius" => 2px, "background-color" => "red", 
         "font-weight" => "bold", "color" => "white")
@@ -84,6 +84,83 @@ function cell_bind!(c::Connection, cell::Cell{<:Any},
     end
     km::KeyMap
 end
+
+function cell_highlight!(c::Connection, cm::ComponentModifier, cell::Cell{:code},
+    cells::Vector{Cell},  proj::Project{:rpc})
+    windowname::String = proj.id
+    curr = cm["cell$(cell.id)"]["text"]
+    curr_raw = cm["rawcell$(cell.id)"]["text"]
+    if curr_raw == "]"
+        remove!(cm, "cellcontainer$(cell.id)")
+        pos = findfirst(lcell -> lcell.id == cell.id, cells)
+        new_cell = Cell(pos, "pkgrepl", "")
+        deleteat!(cells, pos)
+        insert!(cells, pos, new_cell)
+        ToolipsSession.insert!(cm, windowname, pos, build(c, cm, new_cell,
+         cells, proj))
+         focus!(cm, "cell$(new_cell.id)")
+    elseif curr_raw == ";"
+        remove!(cm, "cellcontainer$(cell.id)")
+        pos = findfirst(lcell -> lcell.id == cell.id, cells)
+        new_cell = Cell(pos, "shell", "")
+        deleteat!(cells, pos)
+        insert!(cells, pos, new_cell)
+        ToolipsSession.insert!(cm, windowname, pos, build(c, cm, new_cell,
+         cells, proj))
+         focus!(cm, "cell$(new_cell.id)")
+    elseif curr_raw == "?"
+        pos = findfirst(lcell -> lcell.id == cell.id, cells)
+        new_cell = Cell(pos, "helprepl", "")
+        deleteat!(cells, pos)
+        insert!(cells, pos, new_cell)
+        remove!(cm, "cellcontainer$(cell.id)")
+        ToolipsSession.insert!(cm, windowname, pos, build(c, cm, new_cell,
+         cells, proj))
+        focus!(cm, "cell$(new_cell.id)")
+    elseif curr_raw == "#=TODO"
+        remove!(cm, "cellcontainer$(cell.id)")
+        pos = findfirst(lcell -> lcell.id == cell.id, cells)
+        new_cell = Cell(pos, "TODO", "")
+        deleteat!(cells, pos)
+        insert!(cells, pos, new_cell)
+        ToolipsSession.insert!(cm, windowname, pos, build(c, cm, new_cell,
+         cells, proj))
+         focus!(cm, "cell$(new_cell.id)")
+    elseif curr_raw == "#=NOTE"
+        pos = findfirst(lcell -> lcell.id == cell.id, cells)
+        new_cell = Cell(pos, "NOTE", "")
+        deleteat!(cells, pos)
+        insert!(cells, pos, new_cell)
+        remove!(cm, "cellcontainer$(cell.id)")
+        ToolipsSession.insert!(cm, windowname, pos, build(c, cm, new_cell,
+         cells, proj))
+        focus!(cm, "cell$(new_cell.id)")
+    elseif curr_raw == "include("
+        pos = findfirst(lcell -> lcell.id == cell.id, cells)
+        new_cell = Cell(pos, "include", cells[pos].source, cells[pos].outputs)
+        deleteat!(cells, pos)
+        insert!(cells, pos, new_cell)
+        remove!(cm, "cellcontainer$(cell.id)")
+        ToolipsSession.insert!(cm, windowname, pos, build(c, cm, new_cell,
+         cells, proj))
+        focus!(cm, "cell$(new_cell.id)")
+    end
+    cursorpos = parse(Int64, cm["cell$(cell.id)"]["caret"])
+    cell.source = curr
+    cellsrclen = length(cell.source)
+    tm = ToolipsMarkdown.TextStyleModifier(cell.source)
+    ToolipsMarkdown.julia_block!(tm)
+    outp = string(tm)
+    diff = length(outp) - cellsrclen
+    set_text!(cm, "cellhighlight$(cell.id)", outp)
+   ToolipsSession.call!(c) do cm2::ComponentModifier
+        tm.raw = tm.raw[1:cursorpos] * "▆" * tm.raw[cursorpos + 1:length(tm.raw)]
+        ToolipsMarkdown.mark_all!(tm, "▆", :cursor)
+        style!(tm, :cursor, ["color" => "blue"])
+        set_text!(cm2, "cellhighlight$(cell.id)", string(tm))
+    end
+end
+
 
 function build(c::Connection, cm::ComponentModifier, p::Project{:rpc})
     proj_window::Component{:div} = div(p.id)
