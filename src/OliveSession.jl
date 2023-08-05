@@ -17,45 +17,66 @@ using Olive.ToolipsDefaults
 using Olive: OliveExtension, Project, Cell, OliveModifier, Environment
 import Olive: build, cell_bind!, cell_highlight!, build_base_input
 
+function build(c::Connection, cm::ComponentModifier, cell::Cell{:rpcinfo}, 
+    cells::Vector{Cell}, proj::Project{<:Any})
+    outercell = div("cellcontainer$(cell.id)")
+    style!(outercell, "border-radius" => 2px, "border-style" => "solid", 
+    "border-width" => 2px, "border-color" => "#FF3403")
+    push!(outercell, h("rpcheading", 2, text = "invite to session"))
+    invutton = button("invitesess", text = "invite")
+    on(c, invutton, "click") do cm2::ComponentModifier
+        projs = c[:OliveCore].open[Olive.getname(c)].projects
+        hostprojs = [begin 
+            np = Project{:rpc}(p.name)
+            np.data = p.data
+            push!(np.data, :ishost => true)
+            np::Project{:rpc}
+        end for p in projs]
+        clientprojs = [begin 
+        np = Project{:rpc}(p.name)
+        push!(np.data, :ishost => false, :host => Olive.getname(c), 
+        :pane => p.data[:pane])
+        np::Project{:rpc}
+        end for p in projs]
+        c[:OliveCore].open[Olive.getname(c)].projects = hostprojs
+        nametext = cm2[nameenter]["text"]
+        key = ToolipsSession.gen_ref(4)
+        push!(c[:OliveCore].client_keys, key => nametext)
+        env::Environment = Environment(nametext)
+        env.projects = clientprojs
+        push!(c[:OliveCore].client_data, nametext => Dict{String, Any}())
+        push!(c[:OliveCore].open, env)
+        alert!(cm2, key)
+        redirect!(cm2, "/")
+    end
+    nameenter = ToolipsDefaults.textdiv("nameinvite")
+    push!(outercell, invutton, nameenter)
+    outercell::Component{:div}
+end
+
+
+
+function build(c::Connection, cm::ComponentModifier, cell::Cell{:chat}, 
+    cells::Vector{Cell}, proj::Project{<:Any})
+    cell.outputs = []
+    inputbox = ToolipsDefaults.textdiv("cell$(cell.id)", text = "")
+    style!(inputbox, "border-style" => "solid", "border-weight" => 2px)
+    container = div("cellcontainer$(cell.id)")
+
+end
+
 function build(c::Connection, om::OliveModifier, oe::OliveExtension{:invite})
     ico = Olive.topbar_icon("sessionbttn", "send")
     on(c, ico, "click") do cm::ComponentModifier
-        newdiv = div("sessdiv")
-        xbutton = button("closesess", text = "X")
-        invutton = button("invitesess", text = "invite")
-        nameenter = ToolipsDefaults.textdiv("nameinvite")
-        on(c, invutton, "click") do cm2::ComponentModifier
-            projs = c[:OliveCore].open[Olive.getname(c)].projects
-            hostprojs = [begin 
-                np = Project{:rpc}(p.name)
-                np.data = p.data
-                push!(np.data, :ishost => true)
-                np::Project{:rpc}
-            end for p in projs]
-            clientprojs = [begin 
-            np = Project{:rpc}(p.name)
-            push!(np.data, :ishost => false, :host => Olive.getname(c), 
-            :pane => p.data[:pane])
-            np::Project{:rpc}
-            end for p in projs]
-            c[:OliveCore].open[Olive.getname(c)].projects = hostprojs
-            nametext = cm2[nameenter]["text"]
-            key = ToolipsSession.gen_ref(4)
-            push!(c[:OliveCore].client_keys, key => nametext)
-            env::Environment = Environment(nametext)
-            env.projects = clientprojs
-            push!(c[:OliveCore].client_data, nametext => Dict{String, Any}())
-            push!(c[:OliveCore].open, env)
-            alert!(cm2, key)
-            redirect!(cm2, "/")
-        end
-        on(c, xbutton, "click") do cm2::ComponentModifier
-            remove!(cm2, newdiv)
-        end
-        style!(xbutton, "border-radius" => 2px, "background-color" => "red", 
-        "font-weight" => "bold", "color" => "white")
-        push!(newdiv, nameenter, invutton, xbutton)
-        insert!(cm, "olivemain", 2, newdiv)
+        cells = Vector{Cell}([Cell(1, "rpcinfo", "", ""), 
+        Cell(2, "chat", "", Vector{Pair{String, String}()})])
+        home_direc = Directory(c[:OliveCore].data["home"])
+        projdict::Dict{Symbol, Any} = Dict{Symbol, Any}(:cells => cells,
+        :path => home_direc.uri, :env => home_direc.uri)
+        myproj::Project{:rpcinfo} = Project{:rpcinfo}(home_direc.uri, projdict)
+        push!(c[:OliveCore].open[getname(c)].projects, myproj)
+        tab::Component{:div} = build_tab(c, "share this session")
+        open_project(c, om, proj, tab)
     end
     append!(om, "rightmenu", ico)
 end
@@ -168,7 +189,8 @@ function cell_highlight!(c::Connection, cm::ComponentModifier, cell::Cell{:code}
    #== 
    TODO refine syntax highlighter then come back to this. This is the code to add the cursor.
    if length(curr) == 0
-        curse = a("$(cell.id)curs", text = "▆")
+        curs = a("$(cell.id)curs", text = "▆")
+        style!(curse, "")
         set_children!(cm2, "cellhighlight$(cell.id)", [curs])
     end
     ToolipsSession.call!(c) do cm2::ComponentModifier
@@ -215,6 +237,7 @@ function create(name::String; nodeps::Bool = false)
         module $name
         using Olive
         using Olive.Toolips
+        using Olive.TOML
         using Olive.ToolipsSession
         import Olive: build
 
@@ -228,7 +251,7 @@ function create(name::String; nodeps::Bool = false)
             oc.data["home"] = @
             oc.data["wd"] = pwd()
             source_module!(oc)
-            rs = routes(fourofour, main, explorer, docbrowser, icons, mainicon)
+            rs = routes(Olive.fourofour, Olive.)
         end
 
         end # module
@@ -236,7 +259,7 @@ function create(name::String; nodeps::Bool = false)
     end
 end
 
-function build_base_input(c::Connection, cm::ComponentModifier, cell::Cell{:code},
+function build_base_input(c::Connection, cm::ComponentModifier, cell::Cell{<:Any},
     cells::Vector{Cell}, proj::Project{:rpc}; highlight::Bool = false)
     windowname::String = proj.id
     inputbox::Component{:div} = div("cellinput$(cell.id)")
@@ -271,16 +294,25 @@ function build_base_input(c::Connection, cm::ComponentModifier, cell::Cell{:code
         end
         push!(inputbox, inside)
     end
-    on(c, inputbox, "focus") do cm2::ComponentModifier
+    on(c, inside, "focus") do cm2::ComponentModifier
         call!(c, cm2) do cm3::ComponentModifier
-
+            style!(cm3, inside, "border-width" => 2px, "border-style" => "solid", "border-color" => "blue")
+            cm3[inside] = "contenteditable" => "false"
         end
     end
-    on(c, inputbox, "focusout") do cm2::ComponentModifier
-        alert!(cm2, "hello!")
-        rpc!(c, cm2)
+    on(c, inside, "focusout") do cm2::ComponentModifier
+        call!(c, cm2) do cm3::ComponentModifier
+            style!(cm3, inside, "border-width" => 0px, "border-color" => "gray")
+            cm3[inside] = "contenteditable" => "true"
+        end
     end
     inputbox::Component{:div}
+end
+
+
+function cell_bind!(c::Connection, cell::Cell{<:Any}, 
+    cells::Vector{Cell}, proj::Project{:readonly})
+
 end
 
 end # module OliveSession
