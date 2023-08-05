@@ -15,8 +15,50 @@ using Olive: ToolipsMarkdown
 using Olive.ToolipsSession
 using Olive.ToolipsDefaults
 using Olive: OliveExtension, Project, Cell, OliveModifier, Environment, getname
-import Olive: build, cell_bind!, cell_highlight!, build_base_input
+import Olive: build, cell_bind!, cell_highlight!, build_base_input, build_tab
 
+#==
+create
+==#
+function create(name::String; nodeps::Bool = false)
+    Pkg.generate(name)
+    Pkg.activate(name)
+    Pkg.add("Olive")
+    Pkg.add("TOML")
+    Pkg.add("Pkg")
+    Pkg.activate("$name/public")
+    Pkg.add("Pkg")
+    Pkg.add("Olive")
+    open("$name/src/$name.jl") do io
+        write!(io, """
+        module $name
+        using Olive
+        using Olive.Toolips
+        using Olive.TOML
+        using Olive.ToolipsSession
+        import Olive: build
+
+        function start(IP::String = "127.0.0.1", PORT::8000)
+            oc = OliveCore()
+            config = TOML.parse(read("public/Project.toml", String))
+            Pkg.activate("public")
+            oc.data = config["olive"]
+            rootname = oc.data["root"]
+            oc.client_data = config["oliveusers"]
+            oc.data["home"] = @
+            oc.data["wd"] = pwd()
+            source_module!(oc)
+            rs = routes(Olive.fourofour, Olive.)
+        end
+
+        end # module
+        """)
+    end
+end
+
+#==
+rpcinfo
+==#
 function build(c::Connection, cm::ComponentModifier, cell::Cell{:rpcinfo}, 
     cells::Vector{Cell}, proj::Project{<:Any})
     outercell = div("cellcontainer$(cell.id)")
@@ -74,6 +116,38 @@ function build(c::Connection, om::OliveModifier, oe::OliveExtension{:invite})
         Olive.add_to_session(c, cells, cm, "collaborators", home_direc, type = "rpcinfo")
     end
     append!(om, "rightmenu", ico)
+end
+
+#==
+rpc projects
+==#
+
+#== TODO
+slightly redesign this -- this function will become the `collaborators` project's 
+`build` function. Along with the tab below it. (this way `join/open_rpc!` only 
+    gets called once.) 
+==#
+
+function build(c::Connection, cm::ComponentModifier, p::Project{:rpc})
+    proj_window::Component{:div} = div(p.id)
+    style!(proj_window, "overflow-y" => "scroll", "overflow-x" => "hidden")
+    if p.data[:ishost]
+        frstcells::Vector{Cell} = p[:cells]
+        open_rpc!(c, cm, Olive.getname(c), tickrate = 101)
+    else
+        join_rpc!(c, cm, p.data[:host], tickrate = 101)
+        frstcells = c[:OliveCore].open[p.data[:host]][p.name][:cells]
+    end
+    retvs = Vector{Servable}([begin
+        Base.invokelatest(c[:OliveCore].olmod.build, c, cm, cell,
+        frstcells, p)::Component{<:Any}
+    end for cell in frstcells])
+    proj_window[:children] = retvs
+    proj_window::Component{:div}
+end
+
+function build_tab(c::Connection, p::Project{:rpc}; hidden::Bool = false)
+
 end
 
 function cell_bind!(c::Connection, cell::Cell{<:Any}, 
@@ -199,61 +273,6 @@ function cell_highlight!(c::Connection, cm::ComponentModifier, cell::Cell{:code}
     ==#
 end
 
-
-function build(c::Connection, cm::ComponentModifier, p::Project{:rpc})
-    proj_window::Component{:div} = div(p.id)
-    style!(proj_window, "overflow-y" => "scroll", "overflow-x" => "hidden")
-    if p.data[:ishost]
-        frstcells::Vector{Cell} = p[:cells]
-        open_rpc!(c, cm, Olive.getname(c), tickrate = 101)
-    else
-        join_rpc!(c, cm, p.data[:host], tickrate = 101)
-        frstcells = c[:OliveCore].open[p.data[:host]][p.name][:cells]
-    end
-    retvs = Vector{Servable}([begin
-        Base.invokelatest(c[:OliveCore].olmod.build, c, cm, cell,
-        frstcells, p)::Component{<:Any}
-    end for cell in frstcells])
-    proj_window[:children] = retvs
-    proj_window::Component{:div}
-end
-
-function create(name::String; nodeps::Bool = false)
-    Pkg.generate(name)
-    Pkg.activate(name)
-    Pkg.add("Olive")
-    Pkg.add("TOML")
-    Pkg.add("Pkg")
-    Pkg.activate("$name/public")
-    Pkg.add("Pkg")
-    Pkg.add("Olive")
-    open("$name/src/$name.jl") do io
-        write!(io, """
-        module $name
-        using Olive
-        using Olive.Toolips
-        using Olive.TOML
-        using Olive.ToolipsSession
-        import Olive: build
-
-        function start(IP::String = "127.0.0.1", PORT::8000)
-            oc = OliveCore()
-            config = TOML.parse(read("public/Project.toml", String))
-            Pkg.activate("public")
-            oc.data = config["olive"]
-            rootname = oc.data["root"]
-            oc.client_data = config["oliveusers"]
-            oc.data["home"] = @
-            oc.data["wd"] = pwd()
-            source_module!(oc)
-            rs = routes(Olive.fourofour, Olive.)
-        end
-
-        end # module
-        """)
-    end
-end
-
 function build_base_input(c::Connection, cm::ComponentModifier, cell::Cell{<:Any},
     cells::Vector{Cell}, proj::Project{:rpc}; highlight::Bool = false)
     windowname::String = proj.id
@@ -304,9 +323,24 @@ function build_base_input(c::Connection, cm::ComponentModifier, cell::Cell{<:Any
     inputbox::Component{:div}
 end
 
-
+#==
+readonly
+==#
 function cell_bind!(c::Connection, cell::Cell{<:Any}, 
     cells::Vector{Cell}, proj::Project{:readonly})
+
+end
+
+#==
+permissions management
+==#
+module Permissions
+
+end
+#==
+Per-client memory limiting
+==#
+module MemoryLimit
 
 end
 
