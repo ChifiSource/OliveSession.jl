@@ -14,7 +14,7 @@ using Olive.Toolips
 using Olive: ToolipsMarkdown
 using Olive.ToolipsSession
 using Olive.ToolipsDefaults
-using Olive: OliveExtension, Project, Cell, OliveModifier, Environment
+using Olive: OliveExtension, Project, Cell, OliveModifier, Environment, getname
 import Olive: build, cell_bind!, cell_highlight!, build_base_input
 
 function build(c::Connection, cm::ComponentModifier, cell::Cell{:rpcinfo}, 
@@ -69,14 +69,9 @@ function build(c::Connection, om::OliveModifier, oe::OliveExtension{:invite})
     ico = Olive.topbar_icon("sessionbttn", "send")
     on(c, ico, "click") do cm::ComponentModifier
         cells = Vector{Cell}([Cell(1, "rpcinfo", "", ""), 
-        Cell(2, "chat", "", Vector{Pair{String, String}()})])
-        home_direc = Directory(c[:OliveCore].data["home"])
-        projdict::Dict{Symbol, Any} = Dict{Symbol, Any}(:cells => cells,
-        :path => home_direc.uri, :env => home_direc.uri)
-        myproj::Project{:rpcinfo} = Project{:rpcinfo}(home_direc.uri, projdict)
-        push!(c[:OliveCore].open[getname(c)].projects, myproj)
-        tab::Component{:div} = build_tab(c, "share this session")
-        open_project(c, om, proj, tab)
+        Cell(2, "chat", "", Vector{Pair{String, String}}())])
+        home_direc = c[:OliveCore].data["home"] * "hi"
+        Olive.add_to_session(c, cells, cm, "collaborators", home_direc, type = "rpcinfo")
     end
     append!(om, "rightmenu", ico)
 end
