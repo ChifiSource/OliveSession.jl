@@ -1,3 +1,13 @@
+"""
+Created in February, 2022 by
+[chifi - an open source software dynasty.](https://github.com/orgs/ChifiSource)
+by team
+[toolips](https://github.com/orgs/ChifiSource/teams/toolips)
+This software is MIT-licensed.
+#### OliveSession
+OliveSession provides Olive with multi-user functionality, making olive far more 
+deployable and sharable.
+"""
 module OliveSession
 using Olive
 using Olive.Toolips
@@ -5,7 +15,8 @@ using Olive: ToolipsMarkdown
 using Olive.ToolipsSession
 using Olive.ToolipsDefaults
 using Olive: OliveExtension, Project, Cell, OliveModifier, Environment
-import Olive: build, cell_bind!, cell_highlight!
+import Olive: build, cell_bind!, cell_highlight!, build_base_input
+
 function build(c::Connection, om::OliveModifier, oe::OliveExtension{:invite})
     ico = Olive.topbar_icon("sessionbttn", "send")
     on(c, ico, "click") do cm::ComponentModifier
@@ -153,12 +164,22 @@ function cell_highlight!(c::Connection, cm::ComponentModifier, cell::Cell{:code}
     outp = string(tm)
     diff = length(outp) - cellsrclen
     set_text!(cm, "cellhighlight$(cell.id)", outp)
-   ToolipsSession.call!(c) do cm2::ComponentModifier
-        tm.raw = tm.raw[1:cursorpos] * "▆" * tm.raw[cursorpos + 1:length(tm.raw)]
-        ToolipsMarkdown.mark_all!(tm, "▆", :cursor)
-        style!(tm, :cursor, ["color" => "blue"])
-        set_text!(cm2, "cellhighlight$(cell.id)", string(tm))
+    rpc!(c, cm)
+   #== 
+   TODO refine syntax highlighter then come back to this. This is the code to add the cursor.
+   if length(curr) == 0
+        curse = a("$(cell.id)curs", text = "▆")
+        set_children!(cm2, "cellhighlight$(cell.id)", [curs])
     end
+    ToolipsSession.call!(c) do cm2::ComponentModifier
+        ToolipsMarkdown.clear!(tm)
+        tm.raw = tm.raw[1:cursorpos] * "▆" * tm.raw[cursorpos + 1:length(tm.raw)]
+        ToolipsMarkdown.julia_block!(tm)
+        ToolipsMarkdown.mark_all!(tm, "▆", :cursor)
+        style!(tm, :cursor, ["color" => "lightblue"])
+        set_text!(cm2, "cellhighlight$(cell.id)", string(tm))
+    end 
+    ==#
 end
 
 
@@ -167,9 +188,9 @@ function build(c::Connection, cm::ComponentModifier, p::Project{:rpc})
     style!(proj_window, "overflow-y" => "scroll", "overflow-x" => "hidden")
     if p.data[:ishost]
         frstcells::Vector{Cell} = p[:cells]
-        open_rpc!(c, cm, Olive.getname(c))
+        open_rpc!(c, cm, Olive.getname(c), tickrate = 101)
     else
-        join_rpc!(c, cm, p.data[:host])
+        join_rpc!(c, cm, p.data[:host], tickrate = 101)
         frstcells = c[:OliveCore].open[p.data[:host]][p.name][:cells]
     end
     retvs = Vector{Servable}([begin
@@ -178,6 +199,88 @@ function build(c::Connection, cm::ComponentModifier, p::Project{:rpc})
     end for cell in frstcells])
     proj_window[:children] = retvs
     proj_window::Component{:div}
+end
+
+function create(name::String; nodeps::Bool = false)
+    Pkg.generate(name)
+    Pkg.activate(name)
+    Pkg.add("Olive")
+    Pkg.add("TOML")
+    Pkg.add("Pkg")
+    Pkg.activate("$name/public")
+    Pkg.add("Pkg")
+    Pkg.add("Olive")
+    open("$name/src/$name.jl") do io
+        write!(io, """
+        module $name
+        using Olive
+        using Olive.Toolips
+        using Olive.ToolipsSession
+        import Olive: build
+
+        function start(IP::String = "127.0.0.1", PORT::8000)
+            oc = OliveCore()
+            config = TOML.parse(read("public/Project.toml", String))
+            Pkg.activate("public")
+            oc.data = config["olive"]
+            rootname = oc.data["root"]
+            oc.client_data = config["oliveusers"]
+            oc.data["home"] = @
+            oc.data["wd"] = pwd()
+            source_module!(oc)
+            rs = routes(fourofour, main, explorer, docbrowser, icons, mainicon)
+        end
+
+        end # module
+        """)
+    end
+end
+
+function build_base_input(c::Connection, cm::ComponentModifier, cell::Cell{:code},
+    cells::Vector{Cell}, proj::Project{:rpc}; highlight::Bool = false)
+    windowname::String = proj.id
+    inputbox::Component{:div} = div("cellinput$(cell.id)")
+    inside::Component{:div} = ToolipsDefaults.textdiv("cell$(cell.id)",
+    text = replace(cell.source, "\n" => "</br>", " " => "&nbsp;"),
+    "class" => "input_cell")
+    style!(inside, "border-top-left-radius" => 0px)
+    if highlight
+        highlight_box::Component{:div} = div("cellhighlight$(cell.id)",
+        text = "hl")
+        style!(highlight_box, "position" => "absolute",
+        "background" => "transparent", "z-index" => "5", "padding" => 20px,
+        "border-top-left-radius" => "0px !important",
+        "border-radius" => "0px !important", "line-height" => 15px,
+        "max-width" => 90percent, "border-width" =>  0px,  "pointer-events" => "none",
+        "color" => "#4C4646 !important", "border-radius" => 0px, "font-size" => 13pt, "letter-spacing" => 1px,
+        "font-family" => """"Lucida Console", "Courier New", monospace;""", "line-height" => 24px)
+        on(c, inputbox, "keyup", ["cell$(cell.id)", "rawcell$(cell.id)"]) do cm2::ComponentModifier
+            cell_highlight!(c, cm2, cell, cells, proj)
+        end
+        on(cm, inputbox, "paste") do cl
+            push!(cl.changes, """
+            e.preventDefault();
+            var text = e.clipboardData.getData('text/plain');
+            document.execCommand('insertText', false, text);
+            """)
+        end
+        push!(inputbox, highlight_box, inside)
+    else
+        on(c, inside, "keypress") do cm2::ComponentModifier
+
+        end
+        push!(inputbox, inside)
+    end
+    on(c, inputbox, "focus") do cm2::ComponentModifier
+        call!(c, cm2) do cm3::ComponentModifier
+
+        end
+    end
+    on(c, inputbox, "focusout") do cm2::ComponentModifier
+        alert!(cm2, "hello!")
+        rpc!(c, cm2)
+    end
+    inputbox::Component{:div}
 end
 
 end # module OliveSession
