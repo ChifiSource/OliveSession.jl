@@ -146,9 +146,9 @@ function build(c::Connection, cm::ComponentModifier, p::Project{:rpc})
     proj_window::Component{:div}
 end
 
-function build_tab(c::Connection, p::Project{:rpc}; hidden::Bool = false)
+#==function build_tab(c::Connection, p::Project{:rpc}; hidden::Bool = false)
 
-end
+end==#
 
 function cell_bind!(c::Connection, cell::Cell{<:Any}, 
     cells::Vector{Cell}, proj::Project{:rpc})
@@ -309,13 +309,13 @@ function build_base_input(c::Connection, cm::ComponentModifier, cell::Cell{<:Any
         push!(inputbox, inside)
     end
     on(c, inside, "focus") do cm2::ComponentModifier
-        call!(c, cm2) do cm3::ComponentModifier
+        call!(c) do cm3::ComponentModifier
             style!(cm3, inside, "border-width" => 2px, "border-style" => "solid", "border-color" => "blue")
             cm3[inside] = "contenteditable" => "false"
         end
     end
     on(c, inside, "focusout") do cm2::ComponentModifier
-        call!(c, cm2) do cm3::ComponentModifier
+        call!(c) do cm3::ComponentModifier
             style!(cm3, inside, "border-width" => 0px, "border-color" => "gray")
             cm3[inside] = "contenteditable" => "true"
         end
