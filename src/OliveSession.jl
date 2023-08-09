@@ -62,25 +62,33 @@ rpcinfo
 function build(c::Connection, cm::ComponentModifier, cell::Cell{:rpcinfo}, 
     cells::Vector{Cell}, proj::Project{<:Any})
     outercell = div("cellcontainer$(cell.id)")
+    if ~(:active in keys(proj.data))
+        proj.data[:active] = false
+    end
+    if proj.data[:active] == true && ~(proj.data[:ishost])
+        join_rpc!(c, cm, proj.data[:host], tickrate = 120)
+    end
     style!(outercell, "border-radius" => 2px, "border-style" => "solid", 
     "border-width" => 2px, "border-color" => "#FF3403")
     push!(outercell, h("rpcheading", 2, text = "invite to session"))
     invutton = button("invitesess", text = "invite")
     on(c, invutton, "click") do cm2::ComponentModifier
         projs = c[:OliveCore].open[Olive.getname(c)].projects
-        hostprojs = [begin 
+        hostprojs = [begin
             np = Project{:rpc}(p.name)
             np.data = p.data
             push!(np.data, :ishost => true)
             np::Project{:rpc}
         end for p in projs]
         clientprojs = [begin 
-        np = Project{:rpc}(p.name)
-        push!(np.data, :ishost => false, :host => Olive.getname(c), 
-        :pane => p.data[:pane])
-        np::Project{:rpc}
+            np = Project{:rpc}(p.name)
+            push!(np.data, :ishost => false, :host => Olive.getname(c), 
+            :pane => p.data[:pane])
+            np::Project{:rpc}
         end for p in projs]
+        [Olive.close_project(c, cm2, pro) for pro in projs]
         c[:OliveCore].open[Olive.getname(c)].projects = hostprojs
+        [Olive.open_project(c, cm, pro, build_tab(c, pro)) for pro in hostprojs]
         nametext = cm2[nameenter]["text"]
         key = ToolipsSession.gen_ref(4)
         push!(c[:OliveCore].client_keys, key => nametext)
@@ -89,6 +97,7 @@ function build(c::Connection, cm::ComponentModifier, cell::Cell{:rpcinfo},
         push!(c[:OliveCore].client_data, nametext => Dict{String, Any}())
         push!(c[:OliveCore].open, env)
         alert!(cm2, key)
+        open_rpc!(c, cm2, Olive.getname(c), tickrate = 120)
         redirect!(cm2, "/")
     end
     nameenter = ToolipsDefaults.textdiv("nameinvite")
@@ -110,7 +119,7 @@ end
 function build(c::Connection, om::OliveModifier, oe::OliveExtension{:invite})
     ico = Olive.topbar_icon("sessionbttn", "send")
     on(c, ico, "click") do cm::ComponentModifier
-        cells = Vector{Cell}([Cell(1, "rpcinfo", "", ""), 
+        cells = Vector{Cell}([Cell(1, "rpcinfo", "", true), 
         Cell(2, "chat", "", Vector{Pair{String, String}}())])
         home_direc = c[:OliveCore].data["home"] * "hi"
         Olive.add_to_session(c, cells, cm, "collaborators", home_direc, type = "rpcinfo")
@@ -133,9 +142,7 @@ function build(c::Connection, cm::ComponentModifier, p::Project{:rpc})
     style!(proj_window, "overflow-y" => "scroll", "overflow-x" => "hidden")
     if p.data[:ishost]
         frstcells::Vector{Cell} = p[:cells]
-        open_rpc!(c, cm, Olive.getname(c), tickrate = 101)
     else
-        join_rpc!(c, cm, p.data[:host], tickrate = 101)
         frstcells = c[:OliveCore].open[p.data[:host]][p.name][:cells]
     end
     retvs = Vector{Servable}([begin
@@ -248,26 +255,21 @@ function cell_highlight!(c::Connection, cm::ComponentModifier, cell::Cell{:code}
     end
     cursorpos = parse(Int64, cm["cell$(cell.id)"]["caret"])
     cell.source = curr
-    cellsrclen = length(cell.source)
-    tm = ToolipsMarkdown.TextStyleModifier(cell.source)
-    ToolipsMarkdown.julia_block!(tm)
-    outp = string(tm)
-    diff = length(outp) - cellsrclen
-    set_text!(cm, "cellhighlight$(cell.id)", outp)
-    rpc!(c, cm)
-   #== 
-   TODO refine syntax highlighter then come back to this. This is the code to add the cursor.
-   if length(curr) == 0
-        curs = a("$(cell.id)curs", text = "▆")
-        style!(curse, "")
-        set_children!(cm2, "cellhighlight$(cell.id)", [curs])
+    if length(cell.source) == 0
+        return
     end
+    tm = c[:OliveCore].client_data[getname(c)]["highlighters"]["julia"]
+    tm.raw = cell.source[1:cursorpos]
+    ToolipsMarkdown.mark_julia!(tm)
+    first_half = string(tm)
+    ToolipsMarkdown.clear!(tm)
+    tm.raw = cell.source[cursorpos:length(cell.source)]
+    ToolipsMarkdown.mark_julia!(tm)
+    second_half = string(tm)
+    ToolipsMarkdown.clear!(tm)
+    set_text!(cm, "cellhighlight$(cell.id)", string(tm))
     ToolipsSession.call!(c) do cm2::ComponentModifier
-        ToolipsMarkdown.clear!(tm)
-        tm.raw = tm.raw[1:cursorpos] * "▆" * tm.raw[cursorpos + 1:length(tm.raw)]
-        ToolipsMarkdown.julia_block!(tm)
-        ToolipsMarkdown.mark_all!(tm, "▆", :cursor)
-        style!(tm, :cursor, ["color" => "lightblue"])
+        hltxt = first_half * "<a style='color:lightblue;'>▆</a>" * second_half
         set_text!(cm2, "cellhighlight$(cell.id)", string(tm))
     end 
     ==#
