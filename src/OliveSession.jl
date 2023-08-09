@@ -69,11 +69,12 @@ function build(c::Connection, cm::ComponentModifier, cell::Cell{:rpcinfo},
         join_rpc!(c, cm, proj.data[:host], tickrate = 120)
     end
     style!(outercell, "border-radius" => 2px, "border-style" => "solid", 
-    "border-width" => 2px, "border-color" => "#FF3403")
+    "border-width" => 2px)
     push!(outercell, h("rpcheading", 2, text = "invite to session"))
     invutton = button("invitesess", text = "invite")
     on(c, invutton, "click") do cm2::ComponentModifier
         projs = c[:OliveCore].open[Olive.getname(c)].projects
+        proj.data[:active] = true
         hostprojs = [begin
             np = Project{:rpc}(p.name)
             np.data = p.data
@@ -88,17 +89,18 @@ function build(c::Connection, cm::ComponentModifier, cell::Cell{:rpcinfo},
         end for p in projs]
         [Olive.close_project(c, cm2, pro) for pro in projs]
         c[:OliveCore].open[Olive.getname(c)].projects = hostprojs
-        [Olive.open_project(c, cm, pro, build_tab(c, pro)) for pro in hostprojs]
+        [Olive.open_project(c, cm2, pro, build_tab(c, pro)) for pro in hostprojs]
+        proj.data[:host] = getname(c)
         nametext = cm2[nameenter]["text"]
         key = ToolipsSession.gen_ref(4)
         push!(c[:OliveCore].client_keys, key => nametext)
         env::Environment = Environment(nametext)
+        env.directories = c[:OliveCore].open[Olive.getname(c)].directories
         env.projects = clientprojs
         push!(c[:OliveCore].client_data, nametext => Dict{String, Any}())
         push!(c[:OliveCore].open, env)
         alert!(cm2, key)
         open_rpc!(c, cm2, Olive.getname(c), tickrate = 120)
-        redirect!(cm2, "/")
     end
     nameenter = ToolipsDefaults.textdiv("nameinvite")
     push!(outercell, invutton, nameenter)
