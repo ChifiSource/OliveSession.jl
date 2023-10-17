@@ -5,7 +5,7 @@
 ###### collaborative notebooks for julia!
 The `OliveSession` module is an [Olive](https://github.com/ChifiSource/Olive.jl) extension that provides Olive with better multi-user support. This culminates in a few different ways. \
 \
-To add this module, simply add it to your `olive` home environment and then add `using OliveSession` to your `olive` home file. [Olive](https://github.com/ChifiSource/Olive.jl#installing-extensions)
+To add this module, simply add it to your `olive` home environment and then add `using OliveSession` to your `olive` home file. [Olive](https://github.com/ChifiSource/Olive.jl#installing-extensions) For more information on this process, check out [installing extensions](https://github.com/ChifiSource/Olive.jl#installing-extensions)
 
 ---
 ###### what's inside?
