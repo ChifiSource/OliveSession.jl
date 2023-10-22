@@ -39,10 +39,12 @@ function build_collab_preview(c::Connection, cm::ComponentModifier, source::Stri
         nametag = a("$(name)tag", text = name)
         style!(nametag, "background-color" => color, "color" => "white", "border-radius" => 0px, "width" => 30percent,
         fweight ...)
+        n = getname(c)
+        personkey = string(findfirst(k -> name == k, c[:OliveCore].client_keys))
         style!(personbox, "display" => "flex", "padding" => 0px, "border-radius" => 0px, 
         "min-width" => 100percent, "flex-direction" => "row", "overflow" => "hidden")
         permtag = a("$(name)permtag", text = perm)
-        connected = a("$(name)connected")
+        connected = a("$(name)connected", href = "'https://$(c.hostname)/?key=$personkey'")
         if contains("yes", connect)
             style!(connected, "background-color" => "darkgreen", "color" => "white", "width" => 40percent, fweight ...)
             connected[:text] = "connected"
@@ -69,8 +71,7 @@ function build_collab_preview(c::Connection, cm::ComponentModifier, source::Stri
             editbox = Olive.topbar_icon("$(name)edit", "app_registration")
             linkbox = Olive.topbar_icon("$(name)link", "link")
             on(c, linkbox, "click") do cm2::ComponentModifier
-                personkey = findfirst(k -> contains(name, k[2]),c[:OliveCore].client_keys)
-                push!(cm2.changes, "navigator.clipboard.writeText('https://$(c.hostname)?key=$personkey');")
+                push!(cm2.changes, "navigator.clipboard.writeText('https://$(c.hostname)/?key=$personkey');")
                 Olive.olive_notify!(cm2, "link for $name copied to clipboard", color = color)
             end
             editbox[:align], linkbox[:align] = "center", "center"
@@ -108,6 +109,7 @@ function build_collab_edit(c::Connection, cm::ComponentModifier, cell::Cell{:col
     style!(colorcont, "background-color" => "#242526", "width" => 40percent, fweight ...)
     addbox = Olive.topbar_icon("collabadder", "add_box")
     addbox[:align] = "center"
+    ol_user::String = getname(c)
     on(c, addbox, "click") do cm2::ComponentModifier
         name = cm2[nametag]["text"]
         if name == ""
@@ -121,10 +123,20 @@ function build_collab_edit(c::Connection, cm::ComponentModifier, cell::Cell{:col
         colr = cm2[color_selector]["value"]
         pers = "$name|no|$perm|$colr"
         cell.outputs = cell.outputs * ";$pers"
+        projs = c[:OliveCore].open[Olive.getname(c)].projects
         key = ToolipsSession.gen_ref(4)
         push!(c[:OliveCore].client_keys, key => name)
         env::Environment = Environment(name)
+        env.pwd = c[:OliveCore].open[getname(c)].pwd
         env.directories = c[:OliveCore].open[Olive.getname(c)].directories
+        clientprojs = Vector{Olive.Project{<:Any}}(filter!(d -> ~(d.id == proj.id), [begin
+            np = Project{:rpc}(p.name)
+            np.data = p.data
+            np.data[:host] = ol_user
+            np.id = p.id
+            np::Project{:rpc}
+        end for p in projs]))
+        push!(clientprojs, proj)
         env.projects = clientprojs
         push!(c[:OliveCore].client_data, name => Dict{String, Any}())
         push!(c[:OliveCore].open, env)
@@ -135,7 +147,6 @@ function build_collab_edit(c::Connection, cm::ComponentModifier, cell::Cell{:col
     style!(addbox, "background-color" => "darkorange", "color" => "white", "width" => 5percent, fweight ...)
     poweron = Olive.topbar_icon("collabon", "power_settings_new")
     poweron[:align] = "center"
-    ol_user::String = getname(c)
     on(c, poweron, "click") do cm2::ComponentModifier
         projs = c[:OliveCore].open[Olive.getname(c)].projects
         hostprojs = Vector{Olive.Project{<:Any}}(filter!(d -> ~(d.id == proj.id), [begin
@@ -174,15 +185,14 @@ function build(c::Connection, cm::ComponentModifier, cell::Cell{:collab}, proj::
     # check if rpc is open
     if is_active
         # if peer
-        if ~(proj.data[:host] == getname(c))
-            join_rpc!(c, cm, proj.data[:host], tickrate = 120)
-            call!(cm) do cmcall::ComponentModifier
-                splits = split(cell.outputs, ";")
-                ind = findfirst(n -> split(n, "|")[1] == getname(c), splits)
-                data = splits[ind]
-                color = split(data, "|")[4]
-                olive_notify!(cm, "$(getname(c)) has joined !", color = color)
-            end
+        if proj.data[:host] != getname(c)
+            join_rpc!(c, cm, proj.data[:host], tickrate = 150)
+            splits = split(cell.outputs, ";")
+            ind = findfirst(n -> split(n, "|")[1] == getname(c), splits)
+            data = splits[ind]
+            color = split(data, "|")[4]
+            olive_notify!(cmcall, "$(getname(c)) has joined !", color = color)
+            call!(c, cm)
         # if host
         else
 
@@ -206,19 +216,6 @@ function build(c::Connection, cm::ComponentModifier, cell::Cell{:collab}, proj::
         style!(lastch, "border-bottom-left-radius" => 5px, "border-bottom-right-radius" => 5px)
     end
     push!(outercell, collab_status)
- #==  
-        clientprojs = [begin 
-            np = Project{:rpc}(p.name)
-            push!(np.data, :ishost => false, :host => Olive.getname(c), 
-            :pane => p.data[:pane])
-            np::Project{:rpc}
-        end for p in projs]
-        nametext = cm2[nameenter]["text"]
-      
-        alert!(cm2, key)
-    end ==#
-   # nameenter = ToolipsDefaults.textdiv("nameinvite")
-    #push!(outercell, invutton, nameenter)
     outercell::Component{:div}
 end
 
@@ -254,16 +251,17 @@ end==#
 function cell_bind!(c::Connection, cell::Cell{<:Any}, proj::Project{:rpc})
     keybindings = c[:OliveCore].client_data[Olive.getname(c)]["keybindings"]
     km = ToolipsSession.KeyMap()
+    cells = proj[:cells]
     bind!(km, keybindings["save"], prevent_default = true) do cm::ComponentModifier
         Olive.save_project(c, cm, proj)
         rpc!(c, cm)
     end
     bind!(km, keybindings["up"]) do cm2::ComponentModifier
-        Olive.cell_up!(c, cm2, cell, cells, proj)
+        Olive.cell_up!(c, cm2, cell, proj)
         rpc!(c, cm2)
     end
     bind!(km, keybindings["down"]) do cm2::ComponentModifier
-        Olive.cell_down!(c, cm2, cell, cells, proj)
+        Olive.cell_down!(c, cm2, cell, proj)
         rpc!(c, cm2)
     end
     bind!(km, keybindings["delete"]) do cm2::ComponentModifier
@@ -271,11 +269,14 @@ function cell_bind!(c::Connection, cell::Cell{<:Any}, proj::Project{:rpc})
         rpc!(c, cm2)
     end
     bind!(km, keybindings["evaluate"]) do cm2::ComponentModifier
-        Olive.evaluate(c, cm2, cell, cells, proj)
+        Olive.evaluate(c, cm2, cell, proj)
         rpc!(c, cm2)
     end
     bind!(km, keybindings["new"]) do cm2::ComponentModifier
-        Olive.cell_new!(c, cm2, cell, cells, proj)
+        Olive.cell_new!(c, cm2, cell, proj)
+        call!(cm2) do cm3::ComponentModifier
+
+        end
     end
     bind!(km, keybindings["focusup"]) do cm::ComponentModifier
         Olive.focus_up!(c, cm, cell, cells, proj)
@@ -286,65 +287,20 @@ function cell_bind!(c::Connection, cell::Cell{<:Any}, proj::Project{:rpc})
     km::KeyMap
 end
 
+function get_collaborator_data(c::Connection, proj::Project{:rpc})
+    projs = c[:OliveCore].open[proj[:host]].projects
+    pf = findfirst(p -> typeof(p) == Project{:rpcinfo}, projs)
+    rpcinfo_proj = projs[pf]
+    allinfo = rpcinfo_proj[:cells][1].outputs
+    splitinfo = split(allinfo, ";")
+    just_me = findfirst(s -> contains(split(s, "|")[1], getname(c)))
+    split(plitinfo[just_me], "|")::Vector{SubString}
+end
+
 function cell_highlight!(c::Connection, cm::ComponentModifier, cell::Cell{:code}, proj::Project{:rpc})
     windowname::String = proj.id
     curr = cm["cell$(cell.id)"]["text"]
     curr_raw = cm["rawcell$(cell.id)"]["text"]
-    if curr_raw == "]"
-        remove!(cm, "cellcontainer$(cell.id)")
-        pos = findfirst(lcell -> lcell.id == cell.id, cells)
-        new_cell = Cell(pos, "pkgrepl", "")
-        deleteat!(cells, pos)
-        insert!(cells, pos, new_cell)
-        ToolipsSession.insert!(cm, windowname, pos, build(c, cm, new_cell,
-         cells, proj))
-         focus!(cm, "cell$(new_cell.id)")
-    elseif curr_raw == ";"
-        remove!(cm, "cellcontainer$(cell.id)")
-        pos = findfirst(lcell -> lcell.id == cell.id, cells)
-        new_cell = Cell(pos, "shell", "")
-        deleteat!(cells, pos)
-        insert!(cells, pos, new_cell)
-        ToolipsSession.insert!(cm, windowname, pos, build(c, cm, new_cell,
-         cells, proj))
-         focus!(cm, "cell$(new_cell.id)")
-    elseif curr_raw == "?"
-        pos = findfirst(lcell -> lcell.id == cell.id, cells)
-        new_cell = Cell(pos, "helprepl", "")
-        deleteat!(cells, pos)
-        insert!(cells, pos, new_cell)
-        remove!(cm, "cellcontainer$(cell.id)")
-        ToolipsSession.insert!(cm, windowname, pos, build(c, cm, new_cell,
-         cells, proj))
-        focus!(cm, "cell$(new_cell.id)")
-    elseif curr_raw == "#=TODO"
-        remove!(cm, "cellcontainer$(cell.id)")
-        pos = findfirst(lcell -> lcell.id == cell.id, cells)
-        new_cell = Cell(pos, "TODO", "")
-        deleteat!(cells, pos)
-        insert!(cells, pos, new_cell)
-        ToolipsSession.insert!(cm, windowname, pos, build(c, cm, new_cell,
-         cells, proj))
-         focus!(cm, "cell$(new_cell.id)")
-    elseif curr_raw == "#=NOTE"
-        pos = findfirst(lcell -> lcell.id == cell.id, cells)
-        new_cell = Cell(pos, "NOTE", "")
-        deleteat!(cells, pos)
-        insert!(cells, pos, new_cell)
-        remove!(cm, "cellcontainer$(cell.id)")
-        ToolipsSession.insert!(cm, windowname, pos, build(c, cm, new_cell,
-         cells, proj))
-        focus!(cm, "cell$(new_cell.id)")
-    elseif curr_raw == "include("
-        pos = findfirst(lcell -> lcell.id == cell.id, cells)
-        new_cell = Cell(pos, "include", cells[pos].source, cells[pos].outputs)
-        deleteat!(cells, pos)
-        insert!(cells, pos, new_cell)
-        remove!(cm, "cellcontainer$(cell.id)")
-        ToolipsSession.insert!(cm, windowname, pos, build(c, cm, new_cell,
-         cells, proj))
-        focus!(cm, "cell$(new_cell.id)")
-    end
     cursorpos = parse(Int64, cm["cell$(cell.id)"]["caret"])
     cell.source = curr
     if length(cell.source) == 0
@@ -360,60 +316,11 @@ function cell_highlight!(c::Connection, cm::ComponentModifier, cell::Cell{:code}
     second_half = string(tm)
     ToolipsMarkdown.clear!(tm)
     set_text!(cm, "cellhighlight$(cell.id)", string(tm))
+    collabdata = get_collaborator_data(c, proj)
     ToolipsSession.call!(c) do cm2::ComponentModifier
-        hltxt = first_half * "<a style='color:lightblue;'>▆</a>" * second_half
+        hltxt = first_half * "<a style='color:$(collabdata[4]);'>▆</a>" * second_half
         set_text!(cm2, "cellhighlight$(cell.id)", string(tm))
     end 
-    ==#
-end
-
-function build_base_input(c::Connection, cm::ComponentModifier, cell::Cell{<:Any}, proj::Project{:rpc}; highlight::Bool = false)
-    windowname::String = proj.id
-    inputbox::Component{:div} = div("cellinput$(cell.id)")
-    inside::Component{:div} = ToolipsDefaults.textdiv("cell$(cell.id)",
-    text = replace(cell.source, "\n" => "</br>", " " => "&nbsp;"),
-    "class" => "input_cell")
-    style!(inside, "border-top-left-radius" => 0px)
-    if highlight
-        highlight_box::Component{:div} = div("cellhighlight$(cell.id)",
-        text = "hl")
-        style!(highlight_box, "position" => "absolute",
-        "background" => "transparent", "z-index" => "5", "padding" => 20px,
-        "border-top-left-radius" => "0px !important",
-        "border-radius" => "0px !important", "line-height" => 15px,
-        "max-width" => 90percent, "border-width" =>  0px,  "pointer-events" => "none",
-        "color" => "#4C4646 !important", "border-radius" => 0px, "font-size" => 13pt, "letter-spacing" => 1px,
-        "font-family" => """"Lucida Console", "Courier New", monospace;""", "line-height" => 24px)
-        on(c, inputbox, "keyup", ["cell$(cell.id)", "rawcell$(cell.id)"]) do cm2::ComponentModifier
-            cell_highlight!(c, cm2, cell, cells, proj)
-        end
-        on(cm, inputbox, "paste") do cl
-            push!(cl.changes, """
-            e.preventDefault();
-            var text = e.clipboardData.getData('text/plain');
-            document.execCommand('insertText', false, text);
-            """)
-        end
-        push!(inputbox, highlight_box, inside)
-    else
-        on(c, inside, "keypress") do cm2::ComponentModifier
-
-        end
-        push!(inputbox, inside)
-    end
-    on(c, inside, "focus") do cm2::ComponentModifier
-        call!(c) do cm3::ComponentModifier
-            style!(cm3, inside, "border-width" => 2px, "border-style" => "solid", "border-color" => "blue")
-            cm3[inside] = "contenteditable" => "false"
-        end
-    end
-    on(c, inside, "focusout") do cm2::ComponentModifier
-        call!(c) do cm3::ComponentModifier
-            style!(cm3, inside, "border-width" => 0px, "border-color" => "gray")
-            cm3[inside] = "contenteditable" => "true"
-        end
-    end
-    inputbox::Component{:div}
 end
 
 end # - module !
