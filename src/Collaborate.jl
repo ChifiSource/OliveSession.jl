@@ -26,45 +26,9 @@ end
 rpcinfo
 ==#
 
-function build_collab_preview(c::Connection, cell::Cell{:collab}, prok::Project{<:Any})
-    
-end
-
-function build(c::Connection, cm::ComponentModifier, cell::Cell{:collab}, proj::Project{<:Any})
-    outercell::Component{:div} = div("cellcontainer$(cell.id)")
-    # on initial creation, propagates this value.
-    if ~(:active in keys(proj.data))
-        proj.data[:active] = false
-    end
-    is_active::Bool = proj.data[:active]
-    # check if rpc is open
-    if is_active
-        # if peer
-        if ~(proj.data[:ishost])
-            join_rpc!(c, cm, proj.data[:host], tickrate = 120)
-            call!(cm) do cmcall::ComponentModifier
-                splits = split(cell.outputs, ";")
-                ind = findfirst(n -> split(n, "|")[1] == getname(c), splits)
-                data = splits[ind]
-                color = split(data, "|")[4]
-                olive_notify!(cm, "$(getname(c)) has joined !", color = color)
-            end
-        # if host
-        else
-
-        end
-    else
-     #   poweronbutton = Olive.topbar_icon("openrpcbutt", text = "open")
-      #  style!(poweronbutton, "font-size" => 13pt)
-    end
-    # collaborators box
-    collab_status = div("colabstatus")
-    style!(collab_status, "display" => "flex", "flex-direction" => "column", 
-    "padding" => 0px, "border-radius" => 0px, "align-content" => "center", "width" => 50percent, 
-    "height" => 40percent)
+function build_collab_preview(c::Connection, cm::ComponentModifier, cell::Cell{:collab}, proj::Project{<:Any}, fweight ...)
     first_person::Bool = true
-    fweight = ("font-weight" => "bold", "font-size" => 14pt, "padding" => 5px)
-    people = [begin
+    [begin
         name_color_perm = split(person, "|")
         name = string(name_color_perm[1])
         connected = string(name_color_perm[2])
@@ -102,37 +66,85 @@ function build(c::Connection, cm::ComponentModifier, cell::Cell{:collab}, proj::
         personbox[:children] = [nametag, permtag, connected]
         if proj.data[:ishost]
             editbox = Olive.topbar_icon("$(name)edit", "app_registration")
-            style!(editbox, "background-color" => "darkorange", "color" => "white", "color" => "white", "width" => 10percent, 
+            linkbox = Olive.topbar_icon("$(name)link", "link")
+            personkey = findfirst(k -> contains(name, k[2]),c[:OliveCore].client_keys)
+            linkbox["onclick"] = "\"navigator.clipboard.writeText('https://$(c.hostname)?key=$personkey');\""
+            editbox[:align], linkbox[:align] = "center", "center"
+            style!(editbox, "background-color" => "darkorange", "color" => "white", "color" => "white", "width" => 5percent, 
             fweight ...)
-            push!(personbox, editbox)
+            style!(linkbox, "background-color" => "#18191A", "color" => "white", "color" => "white", "width" => 5percent, 
+            fweight ...)
+            push!(personbox, editbox, linkbox)
         end
         personbox::Component{:div}
     end for person in split(cell.outputs, ";")]
+end
+
+function build_collab_edit(c::Connection, cm::ComponentModifier, cell::Cell{:collab}, proj::Project{<:Any}, fweight ...)
+    add_person = div("addcollab")
+    style!(add_person, "padding" => 0px, "border-radius" => 0px, "display" => "flex", "min-width" => 100percent, 
+    "border-bottom-left-radius" => 5px, "border-bottom-right-radius" => 5px, "flex-direction" => "row", "overflow" => "hidden")
+    nametag = a("addname", text = "", contenteditable = true)
+    style!(nametag, "background-color" => "#18191A", "color" => "white", "border-radius" => 0px, 
+    "width" => 30percent, "line-clamp" =>"1", "overflow" => "hidden", "display" => "-webkit-box", fweight ...)
+    perm_opts = Vector{Servable}(
+        [ToolipsDefaults.option(opt, text = opt) for opt in ["all", "askall", "view", "askswitch"]]
+    )
+    perm_selector = ToolipsDefaults.dropdown("permcollab", perm_opts)
+    style!(perm_selector, "height" => 100percent, "width" => 100percent)
+    perm_container = a("permcont", align = "center")
+    style!(perm_container, "width" => 20percent,  "background-color" => "#242526", fweight ...)
+    push!(perm_container, perm_selector)
+    color_selector = ToolipsDefaults.colorinput("colorcollab", value = "#498437")
+    style!(color_selector, "-webkit-appearance" => "none", "moz-appearance" => "none", "appearance" => "none", 
+    "background-color" => "transparent", "pointer" => "cursor", "width" => 100percent, "height" => 100percent, "border" => "none")
+    colorcont = a("colorcont", align = "center")
+    push!(colorcont, color_selector)
+    style!(colorcont, "background-color" => "#242526", "width" => 40percent, fweight ...)
+    addbox = Olive.topbar_icon("collabadder", "add_box")
+    addbox[:align] = "center"
+    style!(addbox, "background-color" => "darkorange", "color" => "white", "width" => 10percent, fweight ...)
+    add_person[:children] = [nametag, perm_container, colorcont, addbox]
+    add_person
+end
+
+function build(c::Connection, cm::ComponentModifier, cell::Cell{:collab}, proj::Project{<:Any})
+    outercell::Component{:div} = div("cellcontainer$(cell.id)")
+    # on initial creation, propagates this value.
+    if ~(:active in keys(proj.data))
+        proj.data[:active] = false
+    end
+    is_active::Bool = proj.data[:active]
+    # check if rpc is open
+    if is_active
+        # if peer
+        if ~(proj.data[:ishost])
+            join_rpc!(c, cm, proj.data[:host], tickrate = 120)
+            call!(cm) do cmcall::ComponentModifier
+                splits = split(cell.outputs, ";")
+                ind = findfirst(n -> split(n, "|")[1] == getname(c), splits)
+                data = splits[ind]
+                color = split(data, "|")[4]
+                olive_notify!(cm, "$(getname(c)) has joined !", color = color)
+            end
+        # if host
+        else
+
+        end
+    else
+     #   poweronbutton = Olive.topbar_icon("openrpcbutt", text = "open")
+      #  style!(poweronbutton, "font-size" => 13pt)
+    end
+    # collaborators box
+    collab_status = div("colabstatus")
+    style!(collab_status, "display" => "flex", "flex-direction" => "column", 
+    "padding" => 0px, "border-radius" => 0px, "align-content" => "center", "width" => 50percent, 
+    "height" => 40percent)
+    fweight = ("font-weight" => "bold", "font-size" => 14pt, "padding" => 5px)
+    people = build_collab_preview(c, cm, cell, proj, fweight ...)
     collab_status[:children] = people
     if proj.data[:ishost]
-        add_person = div("addcollab")
-        style!(add_person, "padding" => 0px, "border-radius" => 0px, "display" => "flex", "min-width" => 100percent, 
-        "border-bottom-left-radius" => 5px, "border-bottom-right-radius" => 5px, "flex-direction" => "row", "overflow" => "hidden")
-        nametag = a("addname", text = "", contenteditable = true)
-        style!(nametag, "background-color" => "#18191A", "color" => "white", "border-radius" => 0px, 
-        "width" => 30percent, "line-clamp" =>"1", "overflow" => "hidden", "display" => "-webkit-box", fweight ...)
-        perm_opts = Vector{Servable}(
-            [ToolipsDefaults.option(opt, text = opt) for opt in ["all", "askall", "view", "askswitch"]]
-        )
-        perm_selector = ToolipsDefaults.dropdown("permcollab", perm_opts)
-        style!(perm_selector, "height" => 100percent, "width" => 100percent)
-        perm_container = a("permcont", align = "center")
-        style!(perm_container, "width" => 20percent,  "background-color" => "#242526", fweight ...)
-        push!(perm_container, perm_selector)
-        color_selector = ToolipsDefaults.colorinput("colorcollab", value = "#498437")
-        style!(color_selector, "-webkit-appearance" => "none", "moz-appearance" => "none", "appearance" => "none", 
-        "background-color" => "transparent", "pointer" => "cursor", "width" => 100percent, "height" => 100percent, "border" => "none")
-        colorcont = a("colorcont", align = "center")
-        push!(colorcont, color_selector)
-        style!(colorcont, "background-color" => "#242526", "width" => 40percent, fweight ...)
-        addbox = Olive.topbar_icon("collabadder", "add_box")
-        style!(addbox, "background-color" => "darkorange", "color" => "white", "width" => 10percent, fweight ...)
-        add_person[:children] = [nametag, perm_container, colorcont, addbox]
+        add_person = build_collab_edit(c, cm, cell, proj, fweight ...)
         push!(collab_status, add_person)
     else
         lastch = people[length(people)]
