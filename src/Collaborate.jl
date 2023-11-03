@@ -129,18 +129,17 @@ function build_collab_edit(c::Connection, cm::ComponentModifier, cell::Cell{:col
         env::Environment = Environment(name)
         env.pwd = c[:OliveCore].open[getname(c)].pwd
         env.directories = c[:OliveCore].open[Olive.getname(c)].directories
-        clientprojs = Vector{Olive.Project{<:Any}}(filter!(d -> ~(d.id == proj.id), [begin
+        [begin
         np = Project{:rpc}(p.name)
         np.data = p.data
         np.data[:host] = ol_user
         np.id = p.id
-        np::Project{:rpc}
-    end for p in projs]))
+        push!(env.projects, np)
+    end for p in filter(d -> ~(d.id == proj.id), projs)]
         newcollab = Project{:collab}(proj.name)
         newcollab.data = copy(proj.data)
         newcollab.data[:ishost] = false
-        push!(clientprojs, newcollab)
-        env.projects = clientprojs
+        push!(env.projects, newcollab)
         push!(c[:OliveCore].client_data, name => Dict{String, Any}())
         push!(c[:OliveCore].open, env)
         box = build_collab_preview(c, cm2, pers, proj, ignorefirst = true, fweight ...)
