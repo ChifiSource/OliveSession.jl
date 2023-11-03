@@ -130,13 +130,16 @@ function build_collab_edit(c::Connection, cm::ComponentModifier, cell::Cell{:col
         env.pwd = c[:OliveCore].open[getname(c)].pwd
         env.directories = c[:OliveCore].open[Olive.getname(c)].directories
         clientprojs = Vector{Olive.Project{<:Any}}(filter!(d -> ~(d.id == proj.id), [begin
-            np = Project{:rpc}(p.name)
-            np.data = p.data
-            np.data[:host] = ol_user
-            np.id = p.id
-            np::Project{:rpc}
-        end for p in projs]))
-        push!(clientprojs, proj)
+        np = Project{:rpc}(p.name)
+        np.data = p.data
+        np.data[:host] = ol_user
+        np.id = p.id
+        np::Project{:rpc}
+    end for p in projs]))
+        newcollab = Project{:collab}(proj.name)
+        newcollab.data = copy(proj.data)
+        newcollab.data[:ishost] = false
+        push!(clientprojs, newcollab)
         env.projects = clientprojs
         push!(c[:OliveCore].client_data, name => Dict{String, Any}())
         push!(c[:OliveCore].open, env)
@@ -185,13 +188,13 @@ function build(c::Connection, cm::ComponentModifier, cell::Cell{:collab}, proj::
     # check if rpc is open
     if is_active
         # if peer
-        if proj.data[:host] != getname(c)
-            join_rpc!(c, cm, proj.data[:host], tickrate = 150)
+        if ~(proj[:ishost])
+            join_rpc!(c, cm, proj.data[:host])
             splits = split(cell.outputs, ";")
             ind = findfirst(n -> split(n, "|")[1] == getname(c), splits)
             data = splits[ind]
             color = split(data, "|")[4]
-            olive_notify!(cmcall, "$(getname(c)) has joined !", color = color)
+            Olive.olive_notify!(cm, "$(getname(c)) has joined !", color = string(color))
             call!(c, cm)
         # if host
         else
@@ -228,21 +231,6 @@ slightly redesign this -- this function will become the `collaborators` project'
 `build` function. Along with the tab below it. (this way `join/open_rpc!` only 
     gets called once.) 
 ==#
-
-function build(c::Connection, cm::ComponentModifier, p::Project{:rpc})
-    proj_window::Component{:div} = div(p.id)
-    style!(proj_window, "overflow-y" => "scroll", "overflow-x" => "hidden")
-    if p.data[:host] == getname(c)
-        frstcells::Vector{Cell} = p[:cells]
-    else
-        frstcells = c[:OliveCore].open[p.data[:host]][p.name][:cells]
-    end
-    retvs = Vector{Servable}([begin
-        Base.invokelatest(c[:OliveCore].olmod.build, c, cm, cell, p)::Component{<:Any}
-    end for cell in frstcells])
-    proj_window[:children] = retvs
-    proj_window::Component{:div}
-end
 
 #==function build_tab(c::Connection, p::Project{:rpc}; hidden::Bool = false)
 
